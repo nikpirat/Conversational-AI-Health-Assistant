@@ -1,10 +1,10 @@
 """
 Service for extracting and storing health entities from user input.
-Coordinates between Gemini (extraction) and Neo4j (storage).
+Coordinates between Claude (extraction) and Neo4j (storage).
 """
 
 from typing import Dict, Any, List
-from core.llm_client import GeminiClient
+from core.llm_client import ClaudeClient
 from core.language_detector import LanguageCode
 from database.neo4j_client import Neo4jClient
 from database.models import Entity, Relationship, EntityType, RelationshipType
@@ -18,8 +18,8 @@ class EntityExtractorService:
     Extracts health entities from user text and stores in knowledge graph.
     """
 
-    def __init__(self, gemini_client: GeminiClient, neo4j_client: Neo4jClient):
-        self.gemini = gemini_client
+    def __init__(self, claude_client: ClaudeClient, neo4j_client: Neo4jClient):
+        self.claude = claude_client
         self.neo4j = neo4j_client
 
     async def extract_and_store(
@@ -39,8 +39,8 @@ class EntityExtractorService:
         """
         logger.info(f"Extracting entities from text: {text[:100]}...")
 
-        # Extract entities using Gemini
-        extraction_result = await self.gemini.extract_entities(text, language)
+        # Extract entities using Claude
+        extraction_result = await self.claude.extract_entities(text, language)
 
         entities_data = extraction_result.get('entities', [])
         relationships_data = extraction_result.get('relationships', [])

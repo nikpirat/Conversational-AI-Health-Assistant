@@ -12,12 +12,12 @@ import redis.asyncio as redis
 
 from config.settings import settings
 from core.voice_input import VoiceInput
-from core.llm_client import GeminiClient
+from core.llm_client import ClaudeClient
 from core.cache_manager import CacheManager
 from database.neo4j_client import Neo4jClient
 from services.storage_service import HealthAssistantService
 from utils.logger import setup_logger
-from utils.rate_limiter import RateLimiter, GeminiRateLimiter, GroqWhisperRateLimiter
+from utils.rate_limiter import RateLimiter, ClaudeRateLimiter, GroqWhisperRateLimiter
 
 logger = setup_logger(__name__)
 
@@ -38,17 +38,18 @@ class HealthAssistantCLI:
         try:
             # Initialize Redis
             print("📦 Connecting to Redis...")
-            redis_client = redis.Redis.from_url(
-                f"redis://{settings.redis_host}:{settings.redis_port}/{settings.redis_db}",
+            redis_client = redis.Redis(
+                host=settings.redis_host,
+                port=settings.redis_port,
+                db=settings.redis_db,
                 decode_responses=True
             )
-            print("Redis client type:", type(redis_client))
             await redis_client.ping()
             print("✅ Redis connected")
 
             # Initialize rate limiters
             rate_limiter = RateLimiter(redis_client)
-            gemini_limiter = GeminiRateLimiter(rate_limiter)
+            claude_limiter = ClaudeRateLimiter(rate_limiter)
             groq_whisper_limiter = GroqWhisperRateLimiter(rate_limiter)
 
             # Initialize cache
@@ -67,15 +68,15 @@ class HealthAssistantCLI:
             voice_input = VoiceInput(groq_whisper_limiter)
             print("✅ Voice input ready")
 
-            # Initialize Gemini client
-            print("🧠 Initializing Gemini...")
-            gemini_client = GeminiClient(gemini_limiter, cache_manager)
-            print("✅ Gemini ready")
+            # Initialize Claude client
+            print("🧠 Initializing Claude...")
+            claude_client = ClaudeClient(claude_limiter, cache_manager)
+            print("✅ Claude ready")
 
             # Initialize main service
             self.service = HealthAssistantService(
                 voice_input,
-                gemini_client,
+                claude_client,
                 neo4j_client,
                 cache_manager
             )
@@ -230,11 +231,16 @@ class HealthAssistantCLI:
         print(f"  Percentage used: {whisper_stats.get('percentage_used', 0):.1f}%")
         print()
 
-        print("🧠 GEMINI API:")
-        gemini_stats = stats['gemini']
-        print(f"  Requests this minute: {gemini_stats['requests_this_minute']}")
-        print(f"  Requests today: {gemini_stats['requests_today']}")
-        print(f"  Requests remaining today: {gemini_stats.get('requests_remaining_today', 'N/A')}")
+        print("🧠 CLAUDE API:")
+        claude_stats = stats['claude']
+        print(f"  Requests this minute: {claude_stats.get('requests_this_minute', 0)}")
+        print(f"  Requests today: {claude_stats['requests_today']}")
+        print(f"  Requests remaining today: {claude_stats.get('requests_remaining_today', 'N/A')}")
+        print(f"  💰 Monthly cost: ${claude_stats.get('monthly_cost_usd', 0):.4f}")
+        print(f"  💰 Budget remaining: ${claude_stats.get('budget_remaining', 0):.4f}")
+        print(f"  💰 Budget used: {claude_stats.get('budget_percentage_used', 0):.1f}%")
+        if 'session_total_cost_usd' in claude_stats:
+            print(f"  💰 Session cost: ${claude_stats['session_total_cost_usd']:.4f}")
         print()
 
     async def interactive_mode(self):

@@ -177,35 +177,54 @@ class RateLimiter:
         return 0.0
 
 
-class GeminiRateLimiter:
-    """Specialized rate limiter for Gemini API."""
+class ClaudeRateLimiter:
+    """Specialized rate limiter for Claude API with cost tracking."""
 
     def __init__(self, rate_limiter: RateLimiter):
         self.limiter = rate_limiter
-        self.per_minute_limit = settings.gemini_max_requests_per_minute
-        self.per_day_limit = settings.gemini_max_requests_per_day
+        self.per_minute_limit = settings.claude_max_requests_per_minute
+        self.per_day_limit = settings.claude_max_requests_per_day
+        self.monthly_budget = settings.monthly_budget_usd
 
     async def check(self) -> bool:
-        """Check if Gemini request is allowed."""
+        """Check if Claude request is allowed."""
         return await self.limiter.check_and_increment(
-            service="gemini",
+            service="claude",
             per_minute_limit=self.per_minute_limit,
             per_day_limit=self.per_day_limit
         )
 
     async def wait_if_needed(self) -> float:
-        """Wait if Gemini rate limit would be exceeded."""
+        """Wait if Claude rate limit would be exceeded."""
         return await self.limiter.wait_if_needed(
-            service="gemini",
+            service="claude",
             per_minute_limit=self.per_minute_limit
         )
 
+    async def track_cost(self, cost_usd: float):
+        """Track API costs."""
+        cost_key = f"cost:claude:month:{datetime.now().strftime('%Y-%m')}"
+        await self.limiter.redis.incrbyfloat(cost_key, cost_usd)
+        # Expire at end of month
+        days_in_month = 30
+        await self.limiter.redis.expire(cost_key, days_in_month * 24 * 3600)
+
     async def get_stats(self) -> Dict[str, any]:
-        """Get Gemini usage statistics."""
-        stats = await self.limiter.get_usage_stats("gemini")
+        """Get Claude usage statistics with cost info."""
+        stats = await self.limiter.get_usage_stats("claude")
+
+        # Get monthly cost
+        cost_key = f"cost:claude:month:{datetime.now().strftime('%Y-%m')}"
+        monthly_cost = float(await self.limiter.redis.get(cost_key) or 0.0)
+
         stats['per_minute_limit'] = self.per_minute_limit
         stats['per_day_limit'] = self.per_day_limit
         stats['requests_remaining_today'] = self.per_day_limit - stats['requests_today']
+        stats['monthly_cost_usd'] = round(monthly_cost, 4)
+        stats['monthly_budget_usd'] = self.monthly_budget
+        stats['budget_remaining'] = round(self.monthly_budget - monthly_cost, 4)
+        stats['budget_percentage_used'] = round((monthly_cost / self.monthly_budget) * 100, 2) if self.monthly_budget > 0 else 0
+
         return stats
 
 

@@ -1,6 +1,7 @@
 """
 Main orchestration service for the voice health assistant.
-Coordinates voice input (Groq Whisper), Gemini chat, entity extraction, and storage.
+Coordinates voice input (Groq Whisper), Claude chat, entity extraction, and storage.
+Implements local-first strategy to minimize API costs.
 """
 
 import time
@@ -8,7 +9,7 @@ import uuid
 from pathlib import Path
 from typing import Dict, Any, Optional
 from core.voice_input import VoiceInput
-from core.llm_client import GeminiClient
+from core.llm_client import ClaudeClient
 from core.language_detector import language_detector, LanguageCode
 from core.cache_manager import CacheManager
 from database.neo4j_client import Neo4jClient
@@ -27,15 +28,15 @@ class HealthAssistantService:
     def __init__(
         self,
         voice_input: VoiceInput,
-        gemini_client: GeminiClient,
+        claude_client: ClaudeClient,
         neo4j_client: Neo4jClient,
         cache_manager: CacheManager
     ):
         self.voice = voice_input
-        self.gemini = gemini_client
+        self.claude = claude_client
         self.neo4j = neo4j_client
         self.cache = cache_manager
-        self.entity_extractor = EntityExtractorService(gemini_client, neo4j_client)
+        self.entity_extractor = EntityExtractorService(claude_client, neo4j_client)
 
     async def process_voice_input(
         self,
@@ -93,8 +94,8 @@ class HealthAssistantService:
             if extraction_result['success'] and extraction_result['entities_created'] > 0:
                 storage_context = f"\n\n[System: Stored {extraction_result['entities_created']} entities and {extraction_result['relationships_created']} relationships in knowledge graph]"
 
-            # Get conversational response from Gemini
-            chat_response = await self.gemini.chat(
+            # Get conversational response from Claude
+            chat_response = await self.claude.chat(
                 message=user_text + storage_context,
                 language=detected_language,
                 conversation_id=conversation_id,
@@ -221,7 +222,7 @@ class HealthAssistantService:
             if extraction_result and extraction_result['success']:
                 storage_context = f"\n\n[System: Stored {extraction_result['entities_created']} entities in knowledge graph]"
 
-            chat_response = await self.gemini.chat(
+            chat_response = await self.claude.chat(
                 message=text + storage_context,
                 language=language,
                 conversation_id=conversation_id,
@@ -232,21 +233,8 @@ class HealthAssistantService:
             assistant_response = chat_response['response']
 
             # Add confirmation if entities were stored
-            if (
-                    isinstance(extraction_result, dict)
-                    and extraction_result.get("success")
-                    and isinstance(extraction_result.get("entities_created"), int)
-                    and extraction_result["entities_created"] > 0
-            ):
-                entities = extraction_result.get("entities", [])
-
-                safe_names = []
-                if isinstance(entities, list):
-                    for e in entities:
-                        if isinstance(e, dict) and "name" in e:
-                            safe_names.append(e["name"])
-
-                topics = ", ".join(safe_names[:3])
+            if extraction_result and extraction_result['success'] and extraction_result['entities_created'] > 0:
+                topics = ", ".join([e['name'] for e in extraction_result['entities'][:3]])
                 confirmation = CONFIRMATION_MESSAGES[language].format(
                     entity_count=extraction_result['entities_created'],
                     topics=topics,
@@ -304,10 +292,10 @@ class HealthAssistantService:
         if not language:
             language, _ = language_detector.detect(query)
 
-        # Gemini will use Neo4j data through conversation context
+        # Claude will use Neo4j data through conversation context
         # In Phase 3, we'll add MCP server for direct Neo4j queries
 
-        response = await self.gemini.chat(
+        response = await self.claude.chat(
             message=query,
             language=language,
             conversation_id=conversation_id,
@@ -323,5 +311,5 @@ class HealthAssistantService:
             'database': self.neo4j.get_statistics(),
             'cache': await self.cache.get_cache_stats(),
             'whisper': self.voice.get_usage_stats(),
-            'gemini': self.gemini.get_usage_stats()
+            'claude': self.claude.get_usage_stats()
         }

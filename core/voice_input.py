@@ -170,6 +170,6 @@ class VoiceInput:
             logger.error(f"Transcription failed: {e}")
             raise
 
-    def get_usage_stats(self) -> Dict[str, any]:
+    async def get_usage_stats(self) -> Dict[str, any]:
         """Get current Groq Whisper API usage statistics."""
-        return self.rate_limiter.get_stats()
+        return await self.rate_limiter.get_stats()

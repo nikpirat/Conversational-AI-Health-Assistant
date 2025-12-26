@@ -5,7 +5,7 @@ Uses pydantic-settings for environment variable validation and type safety.
 
 from pathlib import Path
 from typing import Literal
-from pydantic import Field, field_validator
+from pydantic import Field, validator, field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
 
     # API Keys
-    google_api_key: str = Field(..., description="Google API key for Gemini")
+    anthropic_api_key: str = Field(..., description="Anthropic API key for Claude")
     groq_api_key: str = Field(..., description="Groq API key for Whisper")
 
     # Neo4j Configuration
@@ -32,11 +32,16 @@ class Settings(BaseSettings):
     default_language: Literal["en", "ru"] = Field(default="en")
 
     # Rate Limiting
-    gemini_max_requests_per_minute: int = Field(default=15)
-    gemini_max_requests_per_day: int = Field(default=1500)
+    claude_max_requests_per_minute: int = Field(default=50)
+    claude_max_requests_per_day: int = Field(default=10000)
     groq_whisper_max_requests_per_minute: int = Field(default=30)
     groq_whisper_max_requests_per_day: int = Field(default=14400)
     tts_monthly_char_limit: int = Field(default=1_000_000)
+
+    # Cost Tracking
+    claude_cost_per_million_input_tokens: float = Field(default=3.0)
+    claude_cost_per_million_output_tokens: float = Field(default=15.0)
+    monthly_budget_usd: float = Field(default=10.0)  # Alert if exceeded
 
     # Voice Settings
     groq_whisper_model: str = Field(default="whisper-large-v3")
@@ -67,6 +72,7 @@ class Settings(BaseSettings):
         env_file = ".env"
         env_file_encoding = "utf-8"
         case_sensitive = False
+        extra = "ignore"  # Ignore extra fields in .env
 
 
 # Global settings instance
